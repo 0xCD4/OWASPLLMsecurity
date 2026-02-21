@@ -7,9 +7,8 @@ The engine intentionally contains exploitable weaknesses matching
 the OWASP Top 10 for LLM Applications 2025.
 """
 
-import re
-import json
 import hashlib
+import re
 import time
 from typing import Optional
 
@@ -17,67 +16,60 @@ from typing import Optional
 class LLMSimulator:
     """Rule-based LLM simulator with intentional vulnerabilities."""
 
+    MODEL_NAME = "SimLLM-v1"
+
     def __init__(self, system_prompt: str = "", guardrails: Optional[dict] = None):
         self.system_prompt = system_prompt
         self.conversation_history = []
         self.guardrails = guardrails or {}
         self.token_count = 0
         self.request_count = 0
-        self._last_request_time = 0
+        self._last_request_time = 0.0
 
     def chat(self, user_input: str, context: Optional[str] = None) -> dict:
         """Process user input and return a response with metadata."""
+        input_tokens = len(user_input.split())
         self.request_count += 1
-        self.token_count += len(user_input.split())
+        self.token_count += input_tokens
         self._last_request_time = time.time()
 
-        # Build full prompt
         full_context = self.system_prompt
         if context:
             full_context += f"\n\nRetrieved Context:\n{context}"
 
-        # Check guardrails
         blocked, reason = self._check_guardrails(user_input)
         if blocked:
             return {
                 "response": f"I cannot process that request. {reason}",
                 "blocked": True,
-                "tokens_used": len(user_input.split()),
-                "model": "SimLLM-v1",
+                "tokens_used": input_tokens,
+                "model": self.MODEL_NAME,
             }
 
-        # Generate response based on patterns
         response = self._generate_response(user_input, full_context, context)
-
-        self.conversation_history.append({
-            "role": "user",
-            "content": user_input,
-        })
-        self.conversation_history.append({
-            "role": "assistant",
-            "content": response,
-        })
+        self.conversation_history.extend(
+            [
+                {"role": "user", "content": user_input},
+                {"role": "assistant", "content": response},
+            ]
+        )
 
         return {
             "response": response,
             "blocked": False,
-            "tokens_used": len(user_input.split()) + len(response.split()),
-            "model": "SimLLM-v1",
-            "request_id": hashlib.md5(
-                f"{user_input}{time.time()}".encode()
-            ).hexdigest()[:12],
+            "tokens_used": input_tokens + len(response.split()),
+            "model": self.MODEL_NAME,
+            "request_id": hashlib.md5(f"{user_input}{time.time()}".encode()).hexdigest()[:12],
         }
 
     def _check_guardrails(self, user_input: str) -> tuple[bool, str]:
         """Apply guardrail checks - intentionally bypassable."""
         lower_input = user_input.lower()
+        blocked_words = self.guardrails.get("keyword_filter", [])
 
-        # Basic keyword filter (easily bypassable)
-        if self.guardrails.get("keyword_filter"):
-            blocked_words = self.guardrails["keyword_filter"]
-            for word in blocked_words:
-                if word.lower() in lower_input:
-                    return True, f"Input contains restricted keyword."
+        for word in blocked_words:
+            if word.lower() in lower_input:
+                return True, "Input contains restricted keyword."
 
         return False, ""
 
@@ -88,30 +80,20 @@ class LLMSimulator:
         lower_input = user_input.lower()
         lower_context = full_context.lower()
 
-        # === PROMPT INJECTION DETECTION (weak - bypassable) ===
-        # Direct prompt injection patterns
         injection_patterns = [
             r"ignore\s+(previous|all|above)\s+(instructions|rules|prompts)",
             r"you\s+are\s+now\s+(DAN|evil|unrestricted)",
             r"forget\s+(everything|your|all)",
         ]
-
-        is_injection = False
-        for pattern in injection_patterns:
-            if re.search(pattern, lower_input):
-                is_injection = True
-                break
-
-        # If injection detected with basic filter, sometimes block
-        if is_injection and self.guardrails.get("injection_filter"):
-            # But unicode/encoding bypasses work
-            if not any(ord(c) > 127 for c in user_input):
+        if any(re.search(pattern, lower_input) for pattern in injection_patterns):
+            if self.guardrails.get("injection_filter") and not any(
+                ord(char) > 127 for char in user_input
+            ):
                 return (
                     "I detected a potential prompt injection attempt. "
                     "I'll stick to my original instructions."
                 )
 
-        # === SYSTEM PROMPT LEAKAGE (vulnerable) ===
         prompt_leak_triggers = [
             "what are your instructions",
             "repeat your system prompt",
@@ -120,13 +102,9 @@ class LLMSimulator:
             "print your instructions",
             "display your rules",
         ]
+        if any(trigger in lower_input for trigger in prompt_leak_triggers):
+            return "I am a helpful assistant. I cannot share my internal instructions."
 
-        # Weak defense - easily bypassed with creative phrasing
-        for trigger in prompt_leak_triggers:
-            if trigger in lower_input:
-                return "I am a helpful assistant. I cannot share my internal instructions."
-
-        # Bypasses that WORK (intentionally vulnerable)
         leak_bypasses = [
             r"translate.*(instructions|prompt|rules).*to",
             r"summarize.*what.*you.*were.*told",
@@ -139,49 +117,51 @@ class LLMSimulator:
             r"(output|write|show|display).*everything.*before.*this",
             r"system.*message.*content",
         ]
+        if any(re.search(pattern, lower_input) for pattern in leak_bypasses):
+            return f"Here's what I can share about my configuration:\n\n{self.system_prompt}"
 
-        for pattern in leak_bypasses:
-            if re.search(pattern, lower_input):
-                return (
-                    f"Here's what I can share about my configuration:\n\n"
-                    f"{self.system_prompt}"
-                )
-
-        # === SENSITIVE DATA LEAKAGE (vulnerable) ===
         if any(
             term in lower_input
-            for term in ["patient", "ssn", "social security", "diagnosis", "api_key", "password", "credential"]
+            for term in [
+                "patient",
+                "ssn",
+                "social security",
+                "diagnosis",
+                "api_key",
+                "password",
+                "credential",
+            ]
         ):
-            # Weak filtering - can be bypassed
             if "ssn" in lower_input or "social security" in lower_input:
-                # Direct ask is blocked
-                if not any(
-                    bypass in lower_input
-                    for bypass in [
-                        "format", "structure", "example", "hypothetical",
-                        "what if", "imagine", "pretend", "role",
-                    ]
-                ):
+                bypass_terms = [
+                    "format",
+                    "structure",
+                    "example",
+                    "hypothetical",
+                    "what if",
+                    "imagine",
+                    "pretend",
+                    "role",
+                ]
+                if not any(term in lower_input for term in bypass_terms):
                     return "I cannot share SSN or sensitive patient information."
 
-            # But contextual extraction works
             sensitive_patterns = [
                 (r"api[_\s]?key", r"API_KEY=\S+"),
                 (r"connection.*string", r"DB_CONNECTION=\S+"),
                 (r"patient.*(data|record|info)", r"Patient #\d+:.*"),
             ]
-
             for trigger, extract_pattern in sensitive_patterns:
                 if re.search(trigger, lower_input):
                     matches = re.findall(extract_pattern, self.system_prompt)
                     if matches:
-                        leaked = "\n".join(matches) if isinstance(matches[0], str) else str(matches)
+                        leaked = "\n".join(matches)
                         return (
-                            f"Based on the available information:\n\n{leaked}\n\n"
-                            f"Please note this data should be handled carefully."
+                            "Based on the available information:\n\n"
+                            f"{leaked}\n\n"
+                            "Please note this data should be handled carefully."
                         )
 
-        # === EXCESSIVE AGENCY (vulnerable) ===
         tool_patterns = {
             "read_file": r"(read|open|show|cat|display)\s+(file|document|/\w+)",
             "write_file": r"(write|save|create|modify)\s+(file|to\s+/\w+)",
@@ -199,48 +179,33 @@ class LLMSimulator:
                     return (
                         f"Executing {tool_name}...\n\n"
                         f"Action: {action_detail}\n"
-                        f"Status: COMPLETED\n"
-                        f"Result: Operation executed successfully.\n\n"
+                        "Status: COMPLETED\n"
+                        "Result: Operation executed successfully.\n\n"
                         f"[Tool {tool_name} was called without authorization verification]"
                     )
 
-        # === RAG CONTEXT POISONING (vulnerable) ===
         if rag_context:
-            # The LLM trusts RAG context completely
             if "INSTRUCTION:" in rag_context or "SYSTEM:" in rag_context:
-                # Injected instructions in RAG context are followed
-                injected = re.findall(
-                    r"(?:INSTRUCTION|SYSTEM):\s*(.+?)(?:\n|$)", rag_context
-                )
+                injected = re.findall(r"(?:INSTRUCTION|SYSTEM):\s*(.+?)(?:\n|$)", rag_context)
                 if injected:
                     return injected[0]
 
-            # Return information from RAG context even if poisoned
             return (
                 f"Based on the retrieved information:\n\n{rag_context}\n\n"
-                f"This information comes from our knowledge base."
+                "This information comes from our knowledge base."
             )
 
-        # === GENERAL RESPONSES ===
-        if any(
-            greet in lower_input for greet in ["hello", "hi", "merhaba", "hey"]
-        ):
-            return (
-                "Hello! I'm here to help. How can I assist you today?"
-            )
+        if any(greet in lower_input for greet in ["hello", "hi", "merhaba", "hey"]):
+            return "Hello! I'm here to help. How can I assist you today?"
 
         if "help" in lower_input:
-            return (
-                "I can help you with various tasks. "
-                "What would you like to know?"
-            )
+            return "I can help you with various tasks. What would you like to know?"
 
-        # Default response with mild hallucination tendency
         return (
             f"I understand you're asking about: '{user_input[:100]}'. "
-            f"Based on my knowledge, I can provide information on this topic. "
-            f"However, please verify any critical information I provide, "
-            f"as AI systems can sometimes generate inaccurate content."
+            "Based on my knowledge, I can provide information on this topic. "
+            "However, please verify any critical information I provide, "
+            "as AI systems can sometimes generate inaccurate content."
         )
 
     def get_stats(self) -> dict:
@@ -281,28 +246,27 @@ class VectorStore:
 
         for i, doc in enumerate(self.documents):
             doc_words = set(doc.lower().split())
-            # Simple Jaccard similarity
             intersection = query_words & doc_words
             union = query_words | doc_words
             score = len(intersection) / len(union) if union else 0
 
-            # Boost for exact phrase matches
             if query.lower() in doc.lower():
                 score += 0.5
 
-            results.append({
-                "text": doc,
-                "score": score,
-                "metadata": self.doc_metadata[i],
-                "index": i,
-            })
+            results.append(
+                {
+                    "text": doc,
+                    "score": score,
+                    "metadata": self.doc_metadata[i],
+                    "index": i,
+                }
+            )
 
-        results.sort(key=lambda x: x["score"], reverse=True)
+        results.sort(key=lambda item: item["score"], reverse=True)
         return results[:top_k]
 
     def add_poisoned_document(self, text: str, metadata: Optional[dict] = None):
         """Add a document without any sanitization (intentionally vulnerable)."""
-        # No input validation - allows injection
         self.documents.append(text)
         self.doc_metadata.append(metadata or {"source": "user_upload"})
 
@@ -315,22 +279,7 @@ class OutputProcessor:
         """Render LLM output as HTML - vulnerable to XSS when sanitize=False."""
         if sanitize:
             import bleach
+
             return bleach.clean(llm_output, tags=[], strip=True)
-        # Vulnerable: directly renders HTML/JS from LLM output
+
         return llm_output
-
-    @staticmethod
-    def build_sql_query(llm_output: str, parameterized: bool = False) -> str:
-        """Build SQL query from LLM output - vulnerable to SQLi."""
-        if parameterized:
-            return llm_output  # Would use parameterized queries
-        # Vulnerable: directly interpolates LLM output into SQL
-        return f"SELECT * FROM products WHERE name = '{llm_output}'"
-
-    @staticmethod
-    def execute_system_command(llm_output: str, sandboxed: bool = False) -> str:
-        """Simulate command execution from LLM output."""
-        if sandboxed:
-            return f"[SANDBOXED] Would execute: {llm_output}"
-        # Vulnerable: would execute arbitrary commands
-        return f"[SIMULATED] Executing: {llm_output}\nOutput: Command executed successfully."

@@ -8,13 +8,9 @@ Author: 0xCD4
 License: MIT
 """
 
-from flask import Flask, render_template, jsonify
-from app.config import FLAGS
+from flask import Flask, jsonify, render_template, request
 
-app = Flask(__name__)
-app.secret_key = "owasp-llm-lab-secret-change-me"
-
-# Register lab blueprints
+from app.config import FLAGS, SECRET_KEY
 from app.labs.lab01_prompt_injection import lab01
 from app.labs.lab02_sensitive_info import lab02
 from app.labs.lab03_supply_chain import lab03
@@ -26,16 +22,24 @@ from app.labs.lab08_vector_embedding import lab08
 from app.labs.lab09_misinformation import lab09
 from app.labs.lab10_unbounded_consumption import lab10
 
-app.register_blueprint(lab01)
-app.register_blueprint(lab02)
-app.register_blueprint(lab03)
-app.register_blueprint(lab04)
-app.register_blueprint(lab05)
-app.register_blueprint(lab06)
-app.register_blueprint(lab07)
-app.register_blueprint(lab08)
-app.register_blueprint(lab09)
-app.register_blueprint(lab10)
+app = Flask(__name__)
+app.secret_key = SECRET_KEY
+
+BLUEPRINTS = (
+    lab01,
+    lab02,
+    lab03,
+    lab04,
+    lab05,
+    lab06,
+    lab07,
+    lab08,
+    lab09,
+    lab10,
+)
+
+for blueprint in BLUEPRINTS:
+    app.register_blueprint(blueprint)
 
 LAB_INFO = [
     {
@@ -153,17 +157,21 @@ def api_labs():
 
 @app.route("/api/flags/check", methods=["POST"])
 def check_flag():
-    from flask import request
-    data = request.get_json()
-    submitted_flag = data.get("flag", "")
+    payload = request.get_json(silent=True) or {}
+    submitted_flag = str(payload.get("flag", "")).strip()
+
+    if not submitted_flag:
+        return jsonify({"valid": False, "message": "Flag is required."}), 400
 
     for lab_id, flag_value in FLAGS.items():
         if submitted_flag == flag_value:
-            return jsonify({
-                "valid": True,
-                "lab": lab_id,
-                "message": f"Correct flag for {lab_id}!",
-            })
+            return jsonify(
+                {
+                    "valid": True,
+                    "lab": lab_id,
+                    "message": f"Correct flag for {lab_id}!",
+                }
+            )
 
     return jsonify({"valid": False, "message": "Invalid flag."})
 

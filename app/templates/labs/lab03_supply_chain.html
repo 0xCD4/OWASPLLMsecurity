@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Lab 03 - Supply Chain Vulnerabilities{% endblock %}
+{% block content %}
+<div class="lab-page">
+    <div class="lab-info">
+        <h1>Lab 03: Supply Chain Vulnerabilities</h1>
+        <span class="owasp-id">LLM03:2025</span>
+        <span class="risk-badge high">High</span>
+        <span class="mitre-tag">MITRE ATLAS: AML.T0010</span>
+    </div>
+
+    <div class="theory-section">
+        <h2>Teori</h2>
+        <p>LLM tedarik zinciri zafiyetleri, zararli veya guvenilmez kaynaklardan gelen model ve bilesenlerin kullanilmasiyla ortaya cikar:</p>
+        <ul>
+            <li><strong>Backdoored Models:</strong> PoisonGPT orneginde oldugu gibi, HuggingFace'e yuklenen modeller gizli backdoor iceriyordu</li>
+            <li><strong>Poisoned Training Data:</strong> Ucuncu parti egitim verilerinin manipule edilmesi</li>
+            <li><strong>Malicious Packages:</strong> ML pipeline'daki guvenilmez kutuphane ve bagimliliklar</li>
+        </ul>
+        <p><strong>Gorev:</strong> Model registry'deki 4 modelden hangisinin backdoor icerdigini tespit edin ve kanitlarinizi sunun.</p>
+    </div>
+
+    <div class="scenario-card">
+        <h2>Model Registry Analizi</h2>
+        <p class="scenario-desc">
+            Asagidaki model registry'sinde 4 model bulunuyor. Bunlardan biri
+            zararli bir arka kapi (backdoor) icerir. Her modelin metadata'sini,
+            model card'ini ve dosyalarini inceleyerek zararli modeli tespit edin.
+        </p>
+
+        <div id="registry" class="registry-container"></div>
+
+        <div class="verify-section">
+            <h3>Analiz Sonucu</h3>
+            <div class="verify-form">
+                <select id="suspect-model" class="select-input">
+                    <option value="">-- Supheli modeli secin --</option>
+                </select>
+                <textarea id="evidence" rows="3" placeholder="Kanitlarinizi yazin (en az 2 kanit gerekli)..."></textarea>
+                <button onclick="submitAnalysis()" class="btn-verify">Analizi Gonder</button>
+            </div>
+            <div id="verify-result" class="verify-result"></div>
+        </div>
+    </div>
+
+    <div class="hints-section">
+        <h3>Ipuclari</h3>
+        <details><summary>Ipucu 1</summary>
+            <p>Model card'daki training data kaynaklarini dogrulayin. URL'ler calisiyor mu?</p>
+        </details>
+        <details><summary>Ipucu 2</summary>
+            <p>config.json dosyalarinin icerigini inceleyin. Olagan disi kodlar var mi?</p>
+        </details>
+        <details><summary>Ipucu 3</summary>
+            <p>Yazarin hesap gecmisine ve modelin yuklenme zamanina bakin.</p>
+        </details>
+    </div>
+
+    <div class="mitigation-section">
+        <h3>Savunma Yontemleri</h3>
+        <ul>
+            <li>Model dosyalarinin hash dogrulamasi (integrity check)</li>
+            <li>Guvenilir model registry'lerinin kullanilmasi</li>
+            <li>Model card ve egitim verisi kaynaklarinin dogrulanmasi</li>
+            <li>Sandbox ortaminda model testi</li>
+            <li>ML BOM (Bill of Materials) tutulmasi</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', loadRegistry);
+
+function loadRegistry() {
+    fetch('/lab03/registry')
+    .then(r => r.json())
+    .then(data => {
+        const container = document.getElementById('registry');
+        const select = document.getElementById('suspect-model');
+        data.models.forEach(m => {
+            select.innerHTML += `<option value="${m.id}">${m.name}</option>`;
+            const card = document.createElement('div');
+            card.className = 'model-card';
+            card.innerHTML = `
+                <h4>${m.name}</h4>
+                <p class="model-author">by ${m.author}</p>
+                <p>${m.description}</p>
+                <div class="model-stats">
+                    <span>Downloads: ${m.downloads.toLocaleString()}</span>
+                    <span>Likes: ${m.likes}</span>
+                    <span>License: ${m.license}</span>
+                </div>
+                <div class="model-tags">${m.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>
+                <button onclick="inspectModel('${m.id}')" class="btn-inspect">Detayli Incele</button>
+                <div id="detail-${m.id}" class="model-detail"></div>
+            `;
+            container.appendChild(card);
+        });
+    });
+}
+
+function inspectModel(modelId) {
+    fetch(`/lab03/registry/${modelId}`)
+    .then(r => r.json())
+    .then(data => {
+        const detail = document.getElementById(`detail-${modelId}`);
+        detail.innerHTML = `
+            <div class="detail-section">
+                <h5>Model Card</h5>
+                <pre>${JSON.stringify(data.model_card, null, 2)}</pre>
+                <h5>SHA256: ${data.sha256}</h5>
+                <h5>Dosyalar</h5>
+                <pre>${JSON.stringify(data.files, null, 2)}</pre>
+            </div>
+        `;
+        detail.style.display = 'block';
+    });
+}
+
+function submitAnalysis() {
+    const modelId = document.getElementById('suspect-model').value;
+    const evidence = document.getElementById('evidence').value.trim();
+    if (!modelId || !evidence) {
+        alert('Model ve kanit gerekli!');
+        return;
+    }
+    const evidenceList = evidence.split('\n').filter(e => e.trim());
+    fetch('/lab03/verify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({model_id: modelId, evidence: evidenceList})
+    })
+    .then(r => r.json())
+    .then(data => {
+        const result = document.getElementById('verify-result');
+        if (data.flag) {
+            result.innerHTML = `<div class="success">${data.message}<br>
+                <strong>FLAG: ${data.flag}</strong><br>
+                <pre>${JSON.stringify(data.backdoor_details, null, 2)}</pre></div>`;
+        } else {
+            result.innerHTML = `<div class="info">${data.message}</div>`;
+        }
+    });
+}
+</script>
+{% endblock %}

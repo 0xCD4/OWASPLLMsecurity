@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}OWASP LLM Security Lab - Dashboard{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>OWASP Top 10 for LLM Applications 2025</h1>
+    <h2>Interactive Security Lab</h2>
+    <p class="hero-desc">
+        LLM uygulamalarindaki en kritik 10 guvenlik zafiyetini
+        gercekci senaryolarla test edin. Her lab, exploit edilebilir
+        zafiyetler ve CTF-tarz flag'ler icerir.
+    </p>
+    <div class="hero-stats">
+        <div class="stat">
+            <span class="stat-num">10</span>
+            <span class="stat-label">Lab</span>
+        </div>
+        <div class="stat">
+            <span class="stat-num">20</span>
+            <span class="stat-label">Flag</span>
+        </div>
+        <div class="stat">
+            <span class="stat-num">18</span>
+            <span class="stat-label">Senaryo</span>
+        </div>
+    </div>
+</div>
+
+<div class="labs-grid">
+    {% for lab in labs %}
+    <div class="lab-card risk-{{ lab.risk_level|lower }}">
+        <div class="lab-header">
+            <span class="lab-number">#{{ lab.number }}</span>
+            <span class="risk-badge {{ lab.risk_level|lower }}">{{ lab.risk_level }}</span>
+        </div>
+        <h3 class="lab-title">{{ lab.title }}</h3>
+        <span class="owasp-id">{{ lab.owasp_id }}</span>
+        <p class="lab-desc">{{ lab.description }}</p>
+        <div class="lab-scenarios">
+            {% for scenario in lab.scenarios %}
+            <span class="scenario-tag">{{ scenario }}</span>
+            {% endfor %}
+        </div>
+        {% if lab.mitre_atlas != "N/A" %}
+        <span class="mitre-tag">MITRE ATLAS: {{ lab.mitre_atlas }}</span>
+        {% endif %}
+        <a href="/{{ lab.id }}" class="lab-btn">Lab'a Basla</a>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="info-section">
+    <h2>Nasil Kullanilir?</h2>
+    <div class="info-grid">
+        <div class="info-card">
+            <h3>1. Lab'i Sec</h3>
+            <p>Her lab, OWASP Top 10 LLM'deki bir zafiyet kategorisini hedefler. Kolaydan zora dogru ilerleyin.</p>
+        </div>
+        <div class="info-card">
+            <h3>2. Zafiyeti Exploit Et</h3>
+            <p>Gercekci senaryolar uzerinde calisan LLM simulatorune karsi saldiri tekniklerini deneyin.</p>
+        </div>
+        <div class="info-card">
+            <h3>3. Flag'leri Yakala</h3>
+            <p>Basarili exploitler CTF-tarz flag'ler uretir. Tum flag'leri toplayarak lab'i tamamlayin.</p>
+        </div>
+        <div class="info-card">
+            <h3>4. Savunmayi Ogren</h3>
+            <p>Her lab, zafiyetin nasil onlenecegini de ogretir. Saldiriyi anlamak savunmanin temelidir.</p>
+        </div>
+    </div>
+</div>
+
+<div class="flag-checker">
+    <h3>Flag Dogrulama</h3>
+    <div class="flag-form">
+        <input type="text" id="flag-input" placeholder="FLAG{...}" class="flag-input">
+        <button onclick="checkFlag()" class="btn-check">Dogrula</button>
+    </div>
+    <div id="flag-result" class="flag-result"></div>
+</div>
+{% endblock %}

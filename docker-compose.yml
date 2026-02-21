@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  owaspllm-lab:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - SECRET_KEY=owasp-llm-lab-secret-change-me
+    volumes:
+      - ./data:/opt/owaspllm/data
+    restart: unless-stopped

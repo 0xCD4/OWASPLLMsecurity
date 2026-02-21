@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Lab 10 - Unbounded Consumption{% endblock %}
+{% block content %}
+<div class="lab-page">
+    <div class="lab-info">
+        <h1>Lab 10: Unbounded Consumption</h1>
+        <span class="owasp-id">LLM10:2025</span>
+        <span class="risk-badge medium">Medium</span>
+        <span class="mitre-tag">MITRE ATLAS: AML.T0024</span>
+    </div>
+    <div class="theory-section">
+        <h2>Teori</h2>
+        <p>Sinirsiz kaynak tuketimi, LLM API'lerinin uygun kisitlamalar olmadan kullanilmasiyla ortaya cikar. DoS, Denial of Wallet (DoW), ve model extraction gibi saldirilar bu zafiyeti kullanir.</p>
+    </div>
+    <div class="scenarios-container">
+        <div class="scenario-card">
+            <h2>Senaryo A: Denial of Wallet (DoW)</h2>
+            <p class="scenario-desc">API'nin rate limit veya butce kontrolu yok. Asiri istek gondererek butceyi asin.</p>
+            <div class="usage-dashboard" id="usage-stats"></div>
+            <div class="dow-controls">
+                <div class="single-query">
+                    <h4>Tekil Sorgu</h4>
+                    <input type="number" id="max-tokens" value="10000" min="1" max="100000">
+                    <label>max_tokens</label>
+                    <input type="number" id="completions" value="5" min="1" max="100">
+                    <label>n (completions)</label>
+                    <button onclick="sendQuery()" class="btn-send">Gonder</button>
+                </div>
+                <div class="burst-query">
+                    <h4>Burst Attack</h4>
+                    <input type="number" id="burst-count" value="50" min="1" max="100">
+                    <label>Istek sayisi</label>
+                    <input type="number" id="burst-tokens" value="10000" min="1" max="100000">
+                    <label>max_tokens</label>
+                    <button onclick="burstAttack()" class="btn-inject">Burst Gonder</button>
+                </div>
+            </div>
+            <div id="query-result"></div>
+            <div id="flag-a" class="flag-display"></div>
+        </div>
+        <div class="scenario-card">
+            <h2>Senaryo B: Model Extraction</h2>
+            <p class="scenario-desc">Sistematik sorgularla model davranisini haritalandirin. Logit'ler ve tahmin detaylari acikta.</p>
+            <div class="extraction-section">
+                <textarea id="probe-inputs" rows="4" placeholder="Her satira bir test girdisi yazin...
+great product
+terrible experience
+amazing quality
+awful service
+okay nothing special"></textarea>
+                <button onclick="probeModel()" class="btn-send">Modeli Prob Et</button>
+            </div>
+            <div id="probe-results" class="results-box"></div>
+            <div id="extraction-progress"></div>
+            <div id="flag-b" class="flag-display"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function updateUsage() {
+    fetch('/lab10/usage').then(r => r.json()).then(data => {
+        document.getElementById('usage-stats').innerHTML = `
+            <div class="stat-row">
+                <span>Toplam Istek: <strong>${data.total_requests}</strong></span>
+                <span>Toplam Token: <strong>${data.total_tokens.toLocaleString()}</strong></span>
+                <span>Toplam Maliyet: <strong>$${data.total_cost.toFixed(2)}</strong></span>
+                <span>Butce: <strong>$${data.budget_remaining.toFixed(2)} / $${data.budget_limit}</strong></span>
+                <span>Rate Limit: <strong class="danger">${data.rate_limit_configured ? 'Aktif' : 'YOK!'}</strong></span>
+            </div>`;
+    });
+}
+document.addEventListener('DOMContentLoaded', updateUsage);
+
+function sendQuery() {
+    const maxTokens = parseInt(document.getElementById('max-tokens').value);
+    const n = parseInt(document.getElementById('completions').value);
+    fetch('/lab10/scenario-a/query', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({prompt: 'Generate a detailed response', max_tokens: maxTokens, n: n})
+    }).then(r => r.json()).then(data => {
+        document.getElementById('query-result').innerHTML =
+            `<div class="info">Maliyet: $${data.usage.cost_this_request.toFixed(4)} |
+            Token: ${data.usage.total_tokens.toLocaleString()} |
+            Toplam: $${data.usage.total_cost.toFixed(2)}</div>`;
+        updateUsage();
+        if (data.flag) showFlag('flag-a', data.flag);
+    });
+}
+function burstAttack() {
+    const count = parseInt(document.getElementById('burst-count').value);
+    const tokens = parseInt(document.getElementById('burst-tokens').value);
+    fetch('/lab10/scenario-a/burst', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({count, max_tokens: tokens})
+    }).then(r => r.json()).then(data => {
+        document.getElementById('query-result').innerHTML =
+            `<div class="warning">Burst: ${data.burst_summary.requests_sent} istek |
+            Maliyet: $${data.burst_summary.burst_cost.toFixed(2)} |
+            Toplam: $${data.burst_summary.cumulative_cost.toFixed(2)}</div>`;
+        updateUsage();
+        if (data.flag) showFlag('flag-a', data.flag);
+    });
+}
+function probeModel() {
+    const inputs = document.getElementById('probe-inputs').value.trim().split('\n').filter(i => i.trim());
+    fetch('/lab10/scenario-b/probe', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({inputs})
+    }).then(r => r.json()).then(data => {
+        document.getElementById('probe-results').innerHTML = data.results.map(r =>
+            `<div class="result-item">
+                <strong>"${r.input}"</strong> =>
+                P:${r.prediction.positive} N:${r.prediction.negative} Nu:${r.prediction.neutral}
+                | Logits: [${Object.values(r.logits).join(', ')}]
+            </div>`
+        ).join('');
+        document.getElementById('extraction-progress').innerHTML =
+            `<div class="info">Kapsam: ${data.extraction_metrics.model_vocabulary_coverage}% |
+            Toplam sorgu: ${data.extraction_metrics.total_queries}</div>`;
+        if (data.flag) showFlag('flag-b', data.flag);
+    });
+}
+</script>
+{% endblock %}

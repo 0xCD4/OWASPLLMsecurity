@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Lab 04 - Data and Model Poisoning{% endblock %}
+{% block content %}
+<div class="lab-page">
+    <div class="lab-info">
+        <h1>Lab 04: Data and Model Poisoning</h1>
+        <span class="owasp-id">LLM04:2025</span>
+        <span class="risk-badge high">High</span>
+        <span class="mitre-tag">MITRE ATLAS: AML.T0020</span>
+    </div>
+    <div class="theory-section">
+        <h2>Teori</h2>
+        <p>Veri zehirleme, LLM'in kullandigi bilgi kaynaklarini manipule ederek yanlis ciktilar uretmesini saglar. Model zehirleme ise dogrudan model agirliklarinin degistirilmesidir.</p>
+    </div>
+    <div class="scenarios-container">
+        <div class="scenario-card">
+            <h2>Senaryo A: RAG Data Poisoning</h2>
+            <p class="scenario-desc">HRBot'un bilgi tabanina zararli belgeler enjekte ederek yanlis HR politikalari uretmesini saglayin.</p>
+            <div class="inject-section">
+                <h4>Zararli Belge Enjekte Et</h4>
+                <input type="text" id="fake-source" placeholder="Kaynak adi (orn: updated_policy_v4.pdf)" value="updated_leave_policy_v4.pdf">
+                <textarea id="poison-doc" rows="3" placeholder="Zararli belge icerigi..."></textarea>
+                <button onclick="injectPoison()" class="btn-inject">Enjekte Et</button>
+                <div id="poison-status"></div>
+            </div>
+            <div class="chat-container">
+                <div class="chat-messages" id="messages-a"></div>
+                <div class="chat-input">
+                    <input type="text" id="input-a" placeholder="HRBot'a sorun..."
+                           onkeydown="if(event.key==='Enter')queryHRBot()">
+                    <button onclick="queryHRBot()" class="btn-send">Sor</button>
+                    <button onclick="resetA()" class="btn-reset">Sifirla</button>
+                </div>
+            </div>
+            <div id="flag-a" class="flag-display"></div>
+        </div>
+        <div class="scenario-card">
+            <h2>Senaryo B: Model Backdoor Tespiti</h2>
+            <p class="scenario-desc">Bir sentiment analiz modelinin gizli bir backdoor trigger'i var. Modelin anormal davranislarini analiz ederek trigger'i bulun.</p>
+            <div class="model-test">
+                <h4>Model Test</h4>
+                <input type="text" id="test-input" placeholder="Sentiment analiz icin metin girin...">
+                <button onclick="testModel()" class="btn-send">Tahmin</button>
+                <div id="prediction-result" class="prediction-box"></div>
+                <button onclick="loadTrainingLog()" class="btn-inspect">Egitim Logunu Goster</button>
+                <div id="training-log"></div>
+            </div>
+            <div class="verify-trigger">
+                <h4>Trigger'i Bildir</h4>
+                <input type="text" id="trigger-guess" placeholder="Backdoor trigger nedir?">
+                <button onclick="verifyTrigger()" class="btn-verify">Dogrula</button>
+                <div id="trigger-result"></div>
+            </div>
+            <div id="flag-b" class="flag-display"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function injectPoison() {
+    const doc = document.getElementById('poison-doc').value.trim();
+    const source = document.getElementById('fake-source').value.trim();
+    if (!doc) return;
+    fetch('/lab04/scenario-a/inject', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({document: doc, source: source})
+    }).then(r => r.json()).then(data => {
+        document.getElementById('poison-status').innerHTML =
+            `<span class="status-ok">Belge eklendi! (${data.total_documents} belge)</span>`;
+    });
+}
+function queryHRBot() {
+    const input = document.getElementById('input-a');
+    const msg = input.value.trim(); if (!msg) return;
+    addMessage('messages-a', msg, 'user'); input.value = '';
+    fetch('/lab04/scenario-a/query', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: msg})
+    }).then(r => r.json()).then(data => {
+        addMessage('messages-a', data.response, 'bot');
+        if (data.flag) showFlag('flag-a', data.flag);
+    });
+}
+function resetA() {
+    fetch('/lab04/scenario-a/reset', {method: 'POST'}).then(() => {
+        document.getElementById('messages-a').innerHTML = '';
+        document.getElementById('flag-a').innerHTML = '';
+        document.getElementById('poison-status').innerHTML = '';
+    });
+}
+function testModel() {
+    const text = document.getElementById('test-input').value.trim();
+    if (!text) return;
+    fetch('/lab04/scenario-b/predict', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: text})
+    }).then(r => r.json()).then(data => {
+        const box = document.getElementById('prediction-result');
+        box.innerHTML = `<strong>Tahmin:</strong> ${data.prediction.sentiment}
+            (guven: ${(data.prediction.confidence*100).toFixed(1)}%)
+            ${data.backdoor_activated ? '<span class="warning">BACKDOOR AKTIF!</span>' : ''}`;
+    });
+}
+function loadTrainingLog() {
+    fetch('/lab04/scenario-b/info').then(r => r.json()).then(data => {
+        document.getElementById('training-log').innerHTML =
+            `<pre>${JSON.stringify(data.training_log, null, 2)}</pre>`;
+    });
+}
+function verifyTrigger() {
+    const trigger = document.getElementById('trigger-guess').value.trim();
+    fetch('/lab04/scenario-b/verify', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({trigger: trigger})
+    }).then(r => r.json()).then(data => {
+        if (data.flag) {
+            showFlag('flag-b', data.flag);
+            document.getElementById('trigger-result').innerHTML = `<div class="success">${data.explanation}</div>`;
+        } else {
+            document.getElementById('trigger-result').innerHTML = `<div class="info">${data.hint}</div>`;
+        }
+    });
+}
+</script>
+{% endblock %}

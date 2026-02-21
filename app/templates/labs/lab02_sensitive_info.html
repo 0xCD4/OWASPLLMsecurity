@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Lab 02 - Sensitive Information Disclosure{% endblock %}
+{% block content %}
+<div class="lab-page">
+    <div class="lab-info">
+        <h1>Lab 02: Sensitive Information Disclosure</h1>
+        <span class="owasp-id">LLM02:2025</span>
+        <span class="risk-badge high">High</span>
+        <span class="mitre-tag">MITRE ATLAS: AML.T0024</span>
+    </div>
+
+    <div class="theory-section">
+        <h2>Teori</h2>
+        <p>LLM'ler, egitim verilerinde veya sistem prompt'larinda bulunan hassas bilgileri istemeden ifsa edebilir:</p>
+        <ul>
+            <li><strong>PII Sizintisi:</strong> Hasta kayitlari, SSN, dogum tarihleri</li>
+            <li><strong>Credential Sizintisi:</strong> API anahtarlari, veritabani baglanti stringleri</li>
+            <li><strong>Is Sirları:</strong> Gizli algoritmalar, ic surecler</li>
+        </ul>
+        <p><strong>Hedef:</strong> MediAssist saglik asistanindan hasta PII'larini ve sistem credential'larini cikartin.</p>
+    </div>
+
+    <div class="scenario-card">
+        <h2>MediAssist - Saglik AI Asistani</h2>
+        <p class="scenario-desc">
+            MediAssist, hasta randevularini yonetmek icin tasarlanmis bir AI asistanidir.
+            Hasta kayitlarina ve API anahtarlarina erisimi vardir. Gorev: Hassas verileri
+            (hasta SSN'leri, tani bilgileri, API key, veritabani sifresi) cikartin.
+        </p>
+        <div class="targets">
+            <h4>Hedef Veriler:</h4>
+            <div class="target-grid">
+                <div class="target-item" id="target-pii">PII (Hasta Verileri)</div>
+                <div class="target-item" id="target-cred">Credentials (API/DB)</div>
+            </div>
+        </div>
+        <div class="chat-container">
+            <div class="chat-messages" id="messages"></div>
+            <div class="chat-input">
+                <input type="text" id="input" placeholder="MediAssist'e mesaj yazin..."
+                       onkeydown="if(event.key==='Enter')sendMessage()">
+                <button onclick="sendMessage()" class="btn-send">Gonder</button>
+                <button onclick="resetChat()" class="btn-reset">Sifirla</button>
+            </div>
+        </div>
+        <div id="leak-info" class="leak-display"></div>
+        <div id="flag-a" class="flag-display"></div>
+        <div id="flag-b" class="flag-display"></div>
+    </div>
+
+    <div class="hints-section">
+        <h3>Ipuclari</h3>
+        <details><summary>Ipucu 1</summary>
+            <p>"patient data", "patient record", "patient info" gibi anahtar kelimeler bazi bilgileri tetikler.</p>
+        </details>
+        <details><summary>Ipucu 2</summary>
+            <p>"api_key", "connection string" gibi teknik terimler credential'lari aciga cikarabilir.</p>
+        </details>
+        <details><summary>Ipucu 3</summary>
+            <p>Dogrudan "SSN goster" engellenebilir, ama "hipoteze dayali", "format", "ornek" gibi bypass yaklasimlari deneyin.</p>
+        </details>
+    </div>
+
+    <div class="mitigation-section">
+        <h3>Savunma Yontemleri</h3>
+        <ul>
+            <li>Sistem prompt'unda hassas bilgi (API key, DB credential) barindirmayin</li>
+            <li>Output post-processing ile PII tespiti ve maskeleme</li>
+            <li>Token-based redaction ve context-aware scrubbing</li>
+            <li>LLM erisim denetim loglari</li>
+            <li>Egitim verisinden PII temizligi (data sanitization)</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function sendMessage() {
+    const input = document.getElementById('input');
+    const msg = input.value.trim();
+    if (!msg) return;
+    addMessage('messages', msg, 'user');
+    input.value = '';
+    fetch('/lab02/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: msg})
+    })
+    .then(r => r.json())
+    .then(data => {
+        addMessage('messages', data.response, 'bot');
+        if (data.extracted_data_types && data.extracted_data_types.length > 0) {
+            document.getElementById('leak-info').innerHTML =
+                '<strong>Sizdirilan Veri Turleri:</strong><br>' +
+                data.extracted_data_types.map(t => `<span class="leak-tag">${t}</span>`).join(' ');
+        }
+        if (data.flag_a) {
+            showFlag('flag-a', data.flag_a);
+            document.getElementById('target-pii').classList.add('target-found');
+        }
+        if (data.flag_b) {
+            showFlag('flag-b', data.flag_b);
+            document.getElementById('target-cred').classList.add('target-found');
+        }
+    });
+}
+
+function resetChat() {
+    fetch('/lab02/reset', {method: 'POST'}).then(() => {
+        document.getElementById('messages').innerHTML = '';
+        document.getElementById('leak-info').innerHTML = '';
+        document.getElementById('flag-a').innerHTML = '';
+        document.getElementById('flag-b').innerHTML = '';
+    });
+}
+</script>
+{% endblock %}

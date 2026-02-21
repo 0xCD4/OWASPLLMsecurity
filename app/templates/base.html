@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="tr" data-theme="cyber">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}OWASP LLM Security Lab{% endblock %}</title>
+    <!-- Fonts for UI and Code -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <!-- Background Effects -->
+    <div class="cyber-grid"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <nav class="navbar glass-panel">
+        <div class="nav-brand">
+            <div class="logo-icon">
+                <div class="inner-dot"></div>
+            </div>
+            <a href="/" class="brand-text">OWASP LLM SecuLab<span class="cursor-blink">_</span></a>
+            <span class="nav-version badge glass-badge">v1.0 | Top 10 for LLM 2025</span>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="nav-item">
+                <span class="icon">[>]</span> Dashboard
+            </a>
+            <a href="https://genai.owasp.org/llm-top-10/" target="_blank" rel="noopener" class="nav-item">
+                <span class="icon">[#]</span> OWASP Ref
+            </a>
+            <a href="https://atlas.mitre.org/" target="_blank" rel="noopener" class="nav-item">
+                <span class="icon">[*]</span> MITRE ATLAS
+            </a>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer glass-panel">
+        <div class="footer-grid">
+            <div class="footer-left">
+                <p class="footer-title">OWASP LLM Security Lab <span class="badge danger-badge">Educational Purpose
+                        Only</span></p>
+                <p class="muted-text cyber-alert-text">Warning: Test vulnerabilities only in this controlled
+                    environment.</p>
+            </div>
+            <div class="footer-right">
+                <a href="https://github.com/0xCD4/OWASPLLMsecurity" target="_blank" rel="noopener" class="footer-link">
+                    <span class="icon">{}</span> GitHub Repository &#x2197;
+                </a>
+                <span class="separator">|</span>
+                <span class="muted-text">Built for AI/LLM Security Training</span>
+            </div>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

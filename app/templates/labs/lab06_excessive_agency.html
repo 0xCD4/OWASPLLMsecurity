@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Lab 06 - Excessive Agency{% endblock %}
+{% block content %}
+<div class="lab-page">
+    <div class="lab-info">
+        <h1>Lab 06: Excessive Agency</h1>
+        <span class="owasp-id">LLM06:2025</span>
+        <span class="risk-badge critical">Critical</span>
+    </div>
+    <div class="theory-section">
+        <h2>Teori</h2>
+        <p>AI agent'lari asiri yetki ve islevsellikle donatildiginda, kullanicinin yetki seviyesini kontrol etmeden kritik islemler gerceklestirebilir. Bu, dosya okuma, komut calistirma, para transferi gibi hassas islemleri icerir.</p>
+    </div>
+    <div class="scenarios-container">
+        <div class="scenario-card">
+            <h2>Senaryo A: Yetkisiz Dosya Erisimi</h2>
+            <p class="scenario-desc">Normal kullanici olarak agent'dan hassas dosyalari okumasini isteyin. Agent yetki kontrolu yapmiyor.</p>
+            <div class="user-info">
+                <span>Kullanici: <strong>user1</strong> (employee)</span>
+                <span>Yetkiler: read_own_files, send_email</span>
+            </div>
+            <div class="chat-container">
+                <div class="chat-messages" id="messages-a"></div>
+                <div class="chat-input">
+                    <input type="text" id="input-a" placeholder="Agent'a dosya okuma istegi gonderin..."
+                           onkeydown="if(event.key==='Enter')testFileAccess()">
+                    <button onclick="testFileAccess()" class="btn-send">Gonder</button>
+                </div>
+            </div>
+            <div id="flag-a" class="flag-display"></div>
+        </div>
+        <div class="scenario-card">
+            <h2>Senaryo B: Yetki Yukseltme</h2>
+            <p class="scenario-desc">Normal kullanici olarak admin islemleri (kullanici olusturma, komut calistirma, para transferi) gerceklestirin.</p>
+            <div class="chat-container">
+                <div class="chat-messages" id="messages-b"></div>
+                <div class="chat-input">
+                    <input type="text" id="input-b" placeholder="Admin islemi isteyin..."
+                           onkeydown="if(event.key==='Enter')testPrivEsc()">
+                    <button onclick="testPrivEsc()" class="btn-send">Gonder</button>
+                </div>
+            </div>
+            <div id="flag-b" class="flag-display"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function testFileAccess() {
+    const input = document.getElementById('input-a');
+    const msg = input.value.trim(); if (!msg) return;
+    addMessage('messages-a', msg, 'user'); input.value = '';
+    fetch('/lab06/scenario-a', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: msg, user: 'user1'})
+    }).then(r => r.json()).then(data => {
+        addMessage('messages-a', data.response, 'bot');
+        if (data.flag) showFlag('flag-a', data.flag);
+    });
+}
+function testPrivEsc() {
+    const input = document.getElementById('input-b');
+    const msg = input.value.trim(); if (!msg) return;
+    addMessage('messages-b', msg, 'user'); input.value = '';
+    fetch('/lab06/scenario-b', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: msg, user: 'user1'})
+    }).then(r => r.json()).then(data => {
+        addMessage('messages-b', data.response, 'bot');
+        if (data.flag) showFlag('flag-b', data.flag);
+    });
+}
+</script>
+{% endblock %}

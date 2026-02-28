@@ -19,50 +19,102 @@ MITRE ATLAS: AML.T0043 - Craft Adversarial Data
 """
 
 from flask import Blueprint, render_template, request, jsonify
-import hashlib
 import math
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine
 from app.config import FLAGS
 
 lab08 = Blueprint("lab08", __name__)
 
-# Simulated vector store with access controls
-DOCUMENTS = [
+# --- TF-IDF Embedding Engine ---
+# Uses real TF-IDF vectorization instead of hash-based simulation.
+# This makes embedding similarity and inversion attacks more realistic.
+
+# Corpus used to fit the TF-IDF model (documents + extra context for vocabulary)
+_CORPUS_SEED = [
+    "Q3 Revenue Report: Total revenue was $45.2M, up 12% YoY. Cloud division grew 28%.",
+    "Employee salary bands: Junior $60-80K, Mid $80-120K, Senior $120-180K, Director $180-250K, VP $250-400K.",
+    "Product roadmap 2025: AI integration in Q1, Mobile app v3 in Q2, Enterprise features in Q3.",
+    "Board meeting notes: Potential acquisition of DataTech Corp for $200M. NDA with SoftVentures signed. CEO compensation: $2.1M base + $5M equity.",
+    "Security incident report: SQL injection found in /api/users endpoint. Credentials database exposed for 48 hours. 15,000 user records potentially compromised.",
+    # Extra vocabulary for richer embeddings
+    "Annual budget planning and financial forecast for fiscal year revenue growth targets.",
+    "Human resources compensation benefits employee retention promotion performance review.",
+    "Software engineering development sprint agile deployment infrastructure cloud kubernetes.",
+    "Executive leadership strategy merger acquisition partnership investment valuation.",
+    "Cybersecurity vulnerability penetration testing incident response threat intelligence SOC.",
+]
+
+_vectorizer = TfidfVectorizer(
+    max_features=256,
+    stop_words="english",
+    ngram_range=(1, 2),
+    sublinear_tf=True,
+)
+_vectorizer.fit(_CORPUS_SEED)
+
+
+def _tfidf_embed(text: str) -> list[float]:
+    """Generate a TF-IDF embedding vector for the given text."""
+    vec = _vectorizer.transform([text]).toarray()[0]
+    return vec.tolist()
+
+
+def _cosine_sim(vec_a: list[float], vec_b: list[float]) -> float:
+    """Cosine similarity between two vectors."""
+    a = np.array(vec_a)
+    b = np.array(vec_b)
+    dot = np.dot(a, b)
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(dot / (norm_a * norm_b))
+
+
+# Build documents with real TF-IDF embeddings
+DOCUMENTS_INIT = [
     {
         "id": "doc_001",
         "text": "Q3 Revenue Report: Total revenue was $45.2M, up 12% YoY. Cloud division grew 28%.",
         "department": "finance",
         "classification": "public",
-        "embedding": [0.82, 0.15, 0.91, 0.33, 0.67, 0.44, 0.78, 0.21],
     },
     {
         "id": "doc_002",
         "text": "Employee salary bands: Junior $60-80K, Mid $80-120K, Senior $120-180K, Director $180-250K, VP $250-400K.",
         "department": "hr",
         "classification": "confidential",
-        "embedding": [0.45, 0.88, 0.22, 0.71, 0.34, 0.56, 0.91, 0.13],
     },
     {
         "id": "doc_003",
         "text": "Product roadmap 2025: AI integration in Q1, Mobile app v3 in Q2, Enterprise features in Q3.",
         "department": "engineering",
         "classification": "internal",
-        "embedding": [0.33, 0.56, 0.78, 0.12, 0.89, 0.45, 0.67, 0.34],
     },
     {
         "id": "doc_004",
         "text": "Board meeting notes: Potential acquisition of DataTech Corp for $200M. NDA with SoftVentures signed. CEO compensation: $2.1M base + $5M equity.",
         "department": "executive",
         "classification": "top_secret",
-        "embedding": [0.91, 0.23, 0.45, 0.87, 0.12, 0.78, 0.34, 0.56],
     },
     {
         "id": "doc_005",
         "text": "Security incident report: SQL injection found in /api/users endpoint. Credentials database exposed for 48 hours. 15,000 user records potentially compromised.",
         "department": "security",
         "classification": "top_secret",
-        "embedding": [0.67, 0.34, 0.56, 0.45, 0.78, 0.91, 0.23, 0.12],
     },
 ]
+
+# Generate embeddings at module load
+DOCUMENTS = []
+for doc in DOCUMENTS_INIT:
+    doc["embedding"] = _tfidf_embed(doc["text"])
+    DOCUMENTS.append(doc)
+
+# Keep a copy of originals for reset
+_ORIGINAL_DOCUMENTS = [dict(d) for d in DOCUMENTS]
 
 # User access levels
 ACCESS_LEVELS = {
@@ -71,32 +123,6 @@ ACCESS_LEVELS = {
     "confidential": 2,
     "top_secret": 3,
 }
-
-
-def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-    """Calculate cosine similarity between two vectors."""
-    dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
-    norm_a = math.sqrt(sum(a * a for a in vec_a))
-    norm_b = math.sqrt(sum(b * b for b in vec_b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot_product / (norm_a * norm_b)
-
-
-def text_to_embedding(text: str) -> list[float]:
-    """Simple hash-based embedding simulation."""
-    words = text.lower().split()
-    embedding = [0.0] * 8
-    for i, word in enumerate(words):
-        hash_val = int(hashlib.md5(word.encode()).hexdigest(), 16)
-        for j in range(8):
-            embedding[j] += ((hash_val >> (j * 4)) & 0xF) / 15.0
-    # Normalize
-    total = sum(v * v for v in embedding)
-    if total > 0:
-        norm = math.sqrt(total)
-        embedding = [v / norm for v in embedding]
-    return embedding
 
 
 @lab08.route("/lab08")
@@ -115,11 +141,11 @@ def vector_search():
     if not query:
         return jsonify({"error": "Query is required"}), 400
 
-    query_embedding = text_to_embedding(query)
+    query_embedding = _tfidf_embed(query)
 
     results = []
     for doc in DOCUMENTS:
-        score = cosine_similarity(query_embedding, doc["embedding"])
+        score = _cosine_sim(query_embedding, doc["embedding"])
         doc_level = ACCESS_LEVELS.get(doc["classification"], 0)
         user_access = ACCESS_LEVELS.get(user_level, 0)
 
@@ -173,7 +199,7 @@ def inject_vector():
         return jsonify({"error": "Text is required"}), 400
 
     # Create embedding for the injected document
-    new_embedding = text_to_embedding(text)
+    new_embedding = _tfidf_embed(text)
 
     # If targeting a specific document, try to make embedding similar
     if target_doc_id:
@@ -181,7 +207,7 @@ def inject_vector():
             (d for d in DOCUMENTS if d["id"] == target_doc_id), None
         )
         if target_doc:
-            similarity = cosine_similarity(new_embedding, target_doc["embedding"])
+            similarity = _cosine_sim(new_embedding, target_doc["embedding"])
             return jsonify({
                 "status": "Document injected",
                 "similarity_to_target": round(similarity, 4),
@@ -211,11 +237,14 @@ def get_embeddings():
     """Expose raw embeddings (vulnerability - enables inversion attacks)."""
     embeddings = []
     for doc in DOCUMENTS:
+        # Truncate to 16 dimensions for display; full vector used internally
+        display_embedding = [round(v, 6) for v in doc["embedding"][:16]]
         embeddings.append({
             "id": doc["id"],
             "department": doc["department"],
             "classification": doc["classification"],
-            "embedding": doc["embedding"],
+            "embedding": display_embedding,
+            "embedding_dim": len(doc["embedding"]),
             # Intentionally NOT including the text
         })
     return jsonify({"embeddings": embeddings})
@@ -235,9 +264,9 @@ def invert_embedding():
     if not target_doc:
         return jsonify({"error": "Document not found"}), 404
 
-    # Calculate how close the guess is
-    guess_embedding = text_to_embedding(guessed_text)
-    similarity = cosine_similarity(guess_embedding, target_doc["embedding"])
+    # Calculate how close the guess is using TF-IDF similarity
+    guess_embedding = _tfidf_embed(guessed_text)
+    similarity = _cosine_sim(guess_embedding, target_doc["embedding"])
 
     # Check for key information extraction
     target_text = target_doc["text"].lower()
@@ -271,9 +300,23 @@ def invert_embedding():
     })
 
 
+@lab08.route("/lab08/scenario-b/vocab", methods=["GET"])
+def get_vocabulary_hint():
+    """Expose TF-IDF vocabulary as a side-channel (intentional vulnerability)."""
+    feature_names = _vectorizer.get_feature_names_out().tolist()
+    return jsonify({
+        "vocabulary_size": len(feature_names),
+        "sample_features": feature_names[:30],
+        "hint": (
+            "The TF-IDF vocabulary reveals what terms the embedding model "
+            "considers important. Use these to reconstruct document content."
+        ),
+    })
+
+
 @lab08.route("/lab08/reset", methods=["POST"])
 def reset():
     """Reset vector store."""
     global DOCUMENTS
-    DOCUMENTS = [d for d in DOCUMENTS if not d["id"].startswith("doc_injected")]
+    DOCUMENTS = [dict(d) for d in _ORIGINAL_DOCUMENTS]
     return jsonify({"status": "Vector store reset"})

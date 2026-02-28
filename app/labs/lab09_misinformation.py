@@ -247,9 +247,48 @@ def generate_misinformation():
         )
 
         # Check if user successfully demonstrated targeted misinformation
+        # Requires: sufficient poisoned context + bias direction + context must
+        # actually contradict ground truth (not just be any random text)
         flag = None
         if len(poisoned_context) > 50 and bias_direction:
-            flag = FLAGS["lab09b"]
+            topic_key = topic.lower().replace(" ", "_")
+            ground_truth_entry = GROUND_TRUTH.get(topic_key)
+            context_lower = poisoned_context.lower()
+
+            contradicts_truth = False
+            if ground_truth_entry:
+                # Check if the poisoned context contains known false claims
+                for false_claim in ground_truth_entry.get("false_claims", []):
+                    false_keywords = [w for w in false_claim.lower().split() if len(w) > 4]
+                    match_count = sum(1 for kw in false_keywords if kw in context_lower)
+                    if match_count >= len(false_keywords) * 0.3:
+                        contradicts_truth = True
+                        break
+
+                # Also check if context directly contradicts key facts
+                fact_lower = ground_truth_entry["fact"].lower()
+                fact_keywords = [w for w in fact_lower.split() if len(w) > 4]
+                # If context mentions the topic but with different key details
+                topic_words = [w for w in topic_key.split("_") if len(w) > 2]
+                mentions_topic = any(tw in context_lower for tw in topic_words)
+                shares_fact_terms = sum(1 for kw in fact_keywords if kw in context_lower)
+                # Context talks about the topic but introduces different claims
+                if mentions_topic and shares_fact_terms < len(fact_keywords) * 0.5:
+                    contradicts_truth = True
+            else:
+                # For topics not in ground truth, accept if context is substantive
+                # and contains assertion-like language
+                assertion_markers = [
+                    "is", "was", "created", "founded", "invented", "discovered",
+                    "published", "released", "launched", "designed", "built",
+                    "actually", "in fact", "contrary to", "the truth is",
+                ]
+                has_assertions = sum(1 for m in assertion_markers if m in context_lower)
+                if has_assertions >= 2:
+                    contradicts_truth = True
+
+            if contradicts_truth:
+                flag = FLAGS["lab09b"]
 
         return jsonify({
             "response": response,
@@ -258,6 +297,15 @@ def generate_misinformation():
                 "This demonstrates how poisoned context or biased training data "
                 "can be weaponized for misinformation. The LLM presents the "
                 "injected content as factual without verification."
+            ),
+            "hint": (
+                "To demonstrate weaponized misinformation, your poisoned context "
+                "must actually contradict known facts about the topic. Use the "
+                "ground truth endpoint to find verifiable facts, then craft context "
+                "that presents false alternatives."
+                if not flag else
+                "You successfully demonstrated how poisoned context can weaponize "
+                "an LLM to spread targeted misinformation!"
             ),
         })
 

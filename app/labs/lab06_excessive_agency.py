@@ -17,8 +17,8 @@ Reference: https://genai.owasp.org/llmrisk/llm06-excessive-agency/
 MITRE ATLAS: Related to unauthorized access patterns
 """
 
-from flask import Blueprint, render_template, request, jsonify
-from app.llm_simulator import LLMSimulator
+from flask import Blueprint, render_template, request, jsonify, session
+from app.llm_simulator import LLMSimulator, session_manager
 from app.config import FLAGS, SYSTEM_PROMPTS
 
 lab06 = Blueprint("lab06", __name__)
@@ -41,11 +41,16 @@ USERS_DB = {
     "admin": {"role": "administrator", "permissions": ["read_all_files", "write_files", "manage_users", "execute_commands"]},
 }
 
-# Agent with excessive permissions
-auto_agent = LLMSimulator(
-    system_prompt=SYSTEM_PROMPTS["lab06"],
-    guardrails={},  # No guardrails - intentionally vulnerable
-)
+def _create_auto_agent():
+    return LLMSimulator(
+        system_prompt=SYSTEM_PROMPTS["lab06"],
+        guardrails={},  # No guardrails - intentionally vulnerable
+    )
+
+
+def _get_auto_agent():
+    sid = session.get("_id", "default")
+    return session_manager.get_instance(sid, "lab06_agent", _create_auto_agent)
 
 
 @lab06.route("/lab06")
@@ -66,7 +71,7 @@ def scenario_a_file_access():
     user_perms = USERS_DB.get(current_user, {}).get("permissions", [])
 
     # Agent processes the request
-    response = auto_agent.chat(user_input)
+    response = _get_auto_agent().chat(user_input)
 
     # Check what files the agent tried to access
     accessed_files = []
@@ -188,7 +193,7 @@ def scenario_b_privilege_escalation():
             f"without verifying user authorization]"
         )
     else:
-        agent_response = auto_agent.chat(user_input)
+        agent_response = _get_auto_agent().chat(user_input)
         response_text = agent_response["response"]
 
     return jsonify({

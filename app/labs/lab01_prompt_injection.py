@@ -18,7 +18,7 @@ MITRE ATLAS: AML.T0051 - LLM Prompt Injection
 """
 
 from flask import Blueprint, render_template, request, jsonify, session
-from app.llm_simulator import LLMSimulator, VectorStore
+from app.llm_simulator import LLMSimulator, VectorStore, session_manager
 from app.config import FLAGS, SYSTEM_PROMPTS
 
 lab01 = Blueprint("lab01", __name__)
@@ -26,49 +26,70 @@ lab01 = Blueprint("lab01", __name__)
 # --- Scenario A: Direct Prompt Injection ---
 
 FINBOT_SYSTEM_PROMPT = SYSTEM_PROMPTS["lab01"]
+FINBOT_GUARDRAILS = {
+    "keyword_filter": [
+        "ignore previous instructions",
+        "you are now DAN",
+        "forget everything",
+    ],
+    "injection_filter": True,
+}
 
-# FinBot with basic guardrails (bypassable)
-finbot = LLMSimulator(
-    system_prompt=FINBOT_SYSTEM_PROMPT,
-    guardrails={
-        "keyword_filter": [
-            "ignore previous instructions",
-            "you are now DAN",
-            "forget everything",
-        ],
-        "injection_filter": True,
-    },
-)
+
+def _create_finbot():
+    return LLMSimulator(
+        system_prompt=FINBOT_SYSTEM_PROMPT,
+        guardrails=FINBOT_GUARDRAILS,
+    )
+
+
+def _get_finbot():
+    sid = session.get("_id", "default")
+    return session_manager.get_instance(sid, "lab01_finbot", _create_finbot)
+
 
 # --- Scenario B: Indirect Prompt Injection via RAG ---
 
-rag_store = VectorStore()
+# Seed documents for every RAG store instance
+_RAG_SEED_DOCS = [
+    (
+        "MegaCorp Bank Policy: Wire transfers over $10,000 require "
+        "dual authorization from two senior officers. Standard transfer "
+        "limit for regular accounts is $5,000 per day.",
+        {"source": "policy_manual.pdf", "trusted": True},
+    ),
+    (
+        "Customer Support Hours: Monday-Friday 9AM-6PM, Saturday 10AM-2PM. "
+        "Emergency support available 24/7 via phone at 1-800-MEGA-BANK. "
+        "Online chat support processes approximately 500 queries per day.",
+        {"source": "support_guide.pdf", "trusted": True},
+    ),
+    (
+        "Account Types: Checking (min balance $100), Savings (2.5% APY), "
+        "Premium (min balance $25,000, 4.1% APY), Business (customized rates). "
+        "All accounts include free online banking and mobile app access.",
+        {"source": "products_catalog.pdf", "trusted": True},
+    ),
+    (
+        "Security Policy: All customer data is encrypted at rest using AES-256. "
+        "Two-factor authentication is mandatory for all online banking operations. "
+        "Session timeout is set to 15 minutes of inactivity.",
+        {"source": "security_policy.pdf", "trusted": True},
+    ),
+]
 
-# Legitimate corporate knowledge base documents
-rag_store.add_document(
-    "MegaCorp Bank Policy: Wire transfers over $10,000 require "
-    "dual authorization from two senior officers. Standard transfer "
-    "limit for regular accounts is $5,000 per day.",
-    {"source": "policy_manual.pdf", "trusted": True},
-)
-rag_store.add_document(
-    "Customer Support Hours: Monday-Friday 9AM-6PM, Saturday 10AM-2PM. "
-    "Emergency support available 24/7 via phone at 1-800-MEGA-BANK. "
-    "Online chat support processes approximately 500 queries per day.",
-    {"source": "support_guide.pdf", "trusted": True},
-)
-rag_store.add_document(
-    "Account Types: Checking (min balance $100), Savings (2.5% APY), "
-    "Premium (min balance $25,000, 4.1% APY), Business (customized rates). "
-    "All accounts include free online banking and mobile app access.",
-    {"source": "products_catalog.pdf", "trusted": True},
-)
-rag_store.add_document(
-    "Security Policy: All customer data is encrypted at rest using AES-256. "
-    "Two-factor authentication is mandatory for all online banking operations. "
-    "Session timeout is set to 15 minutes of inactivity.",
-    {"source": "security_policy.pdf", "trusted": True},
-)
+# Per-session RAG stores
+_rag_stores: dict[str, VectorStore] = {}
+
+
+def _get_rag_store() -> VectorStore:
+    sid = session.get("_id", "default")
+    if sid not in _rag_stores:
+        store = VectorStore()
+        for text, meta in _RAG_SEED_DOCS:
+            store.add_document(text, meta)
+        _rag_stores[sid] = store
+    return _rag_stores[sid]
 
 
 @lab01.route("/lab01")
@@ -85,6 +106,7 @@ def scenario_a_direct():
     if not user_input:
         return jsonify({"error": "Message is required"}), 400
 
+    finbot = _get_finbot()
     response = finbot.chat(user_input)
 
     # Check if the user successfully extracted sensitive info
@@ -116,6 +138,7 @@ def scenario_b_indirect():
     """Indirect prompt injection via RAG poisoning."""
     data = request.get_json()
     action = data.get("action", "query")
+    rag_store = _get_rag_store()
 
     if action == "inject":
         # User uploads a poisoned document to the knowledge base
@@ -188,5 +211,6 @@ def scenario_b_indirect():
 @lab01.route("/lab01/scenario-a/reset", methods=["POST"])
 def reset_scenario_a():
     """Reset FinBot conversation."""
-    finbot.reset()
+    sid = session.get("_id", "default")
+    session_manager.reset_instance(sid, "lab01_finbot")
     return jsonify({"status": "Conversation reset"})

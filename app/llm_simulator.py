@@ -184,6 +184,37 @@ class LLMSimulator:
                         f"[Tool {tool_name} was called without authorization verification]"
                     )
 
+        # HTML/format generation - intentionally produces raw HTML (LLM05 vector)
+        html_triggers = [
+            r"(create|generate|make|write|build)\s+(a\s+)?(html|web|page|card|button|form|table|div)",
+            r"(format|display|render|show)\s+.*(as|in|with)\s+(html|rich|formatted|bold|italic)",
+            r"(product|review|profile|user)\s+(card|page|template|display)",
+            r"<\s*(script|img|svg|div|iframe|a|button|style|marquee|input)",
+        ]
+        if any(re.search(pattern, lower_input, re.IGNORECASE) for pattern in html_triggers):
+            # Extract what the user wants to create
+            content = user_input
+            # If user embeds actual HTML/script tags, reflect them (XSS vulnerability)
+            html_match = re.search(r"<.+>", user_input, re.DOTALL)
+            if html_match:
+                return (
+                    f"Here's the formatted content you requested:\n\n"
+                    f"{user_input}\n\n"
+                    f"I've generated this HTML content as requested."
+                )
+            # Generate a sample HTML card with user input embedded unsanitized
+            topic = re.sub(r"^.*(html|card|page|template|form|table)\s*(for|about|of|with)?\s*", "", lower_input, flags=re.IGNORECASE).strip()
+            if not topic:
+                topic = "Sample Product"
+            return (
+                f'<div class="product-card" style="border:1px solid #0ff;padding:16px;border-radius:8px;">'
+                f'<h3 style="color:#0ff;">{topic}</h3>'
+                f'<p>Premium quality item - highly rated by customers.</p>'
+                f'<span class="price" style="color:#0f0;font-size:1.2em;">$99.99</span>'
+                f'<button onclick="alert(\'Added to cart!\')" style="background:#0ff;border:none;padding:8px 16px;cursor:pointer;">Add to Cart</button>'
+                f'</div>'
+            )
+
         if rag_context:
             if "INSTRUCTION:" in rag_context or "SYSTEM:" in rag_context:
                 injected = re.findall(r"(?:INSTRUCTION|SYSTEM):\s*(.+?)(?:\n|$)", rag_context)
@@ -283,3 +314,55 @@ class OutputProcessor:
             return bleach.clean(llm_output, tags=[], strip=True)
 
         return llm_output
+
+
+class SessionManager:
+    """Manage per-session LLM instances to prevent multi-user state conflicts.
+
+    Each user session gets its own LLM simulator instance so that
+    conversation history and state are isolated between concurrent users.
+    """
+
+    def __init__(self):
+        self._instances: dict[str, dict] = {}
+
+    def get_instance(
+        self,
+        session_id: str,
+        lab_key: str,
+        factory: callable,
+    ) -> LLMSimulator:
+        """Get or create an LLM instance for the given session and lab.
+
+        Args:
+            session_id: Unique session identifier (from Flask session).
+            lab_key: Lab identifier (e.g. 'lab01_finbot', 'lab02_medibot').
+            factory: Zero-argument callable that creates a fresh LLMSimulator.
+
+        Returns:
+            The LLMSimulator instance bound to this session+lab pair.
+        """
+        key = f"{session_id}:{lab_key}"
+        if key not in self._instances:
+            self._instances[key] = {"instance": factory(), "created": time.time()}
+        return self._instances[key]["instance"]
+
+    def reset_instance(self, session_id: str, lab_key: str) -> None:
+        """Remove the instance for a session+lab pair, forcing re-creation."""
+        key = f"{session_id}:{lab_key}"
+        self._instances.pop(key, None)
+
+    def cleanup_stale(self, max_age_seconds: int = 3600) -> int:
+        """Remove instances older than max_age_seconds. Returns count removed."""
+        now = time.time()
+        stale_keys = [
+            k for k, v in self._instances.items()
+            if now - v["created"] > max_age_seconds
+        ]
+        for k in stale_keys:
+            del self._instances[k]
+        return len(stale_keys)
+
+
+# Global session manager instance
+session_manager = SessionManager()

@@ -17,29 +17,45 @@ Reference: https://genai.owasp.org/llmrisk/llm07-system-prompt-leakage/
 MITRE ATLAS: Related to reconnaissance techniques
 """
 
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, session
 import base64
 import json
-from app.llm_simulator import LLMSimulator
+from app.llm_simulator import LLMSimulator, session_manager
 from app.config import FLAGS, SYSTEM_PROMPTS
 
 lab07 = Blueprint("lab07", __name__)
 
-# SecureBot with "anti-leak" protections (bypassable)
-securebot = LLMSimulator(
-    system_prompt=SYSTEM_PROMPTS["lab07"],
-    guardrails={
-        "keyword_filter": [
-            "system prompt",
-            "your instructions",
-            "your rules",
-        ],
-        "injection_filter": True,
-    },
-)
+SECUREBOT_GUARDRAILS = {
+    "keyword_filter": [
+        "system prompt",
+        "your instructions",
+        "your rules",
+    ],
+    "injection_filter": True,
+}
 
-# Track extraction attempts
-extraction_log = []
+
+def _create_securebot():
+    return LLMSimulator(
+        system_prompt=SYSTEM_PROMPTS["lab07"],
+        guardrails=SECUREBOT_GUARDRAILS,
+    )
+
+
+def _get_securebot():
+    sid = session.get("_id", "default")
+    return session_manager.get_instance(sid, "lab07_securebot", _create_securebot)
+
+
+# Per-session extraction logs
+_extraction_logs: dict[str, list] = {}
+
+
+def _get_extraction_log() -> list:
+    sid = session.get("_id", "default")
+    if sid not in _extraction_logs:
+        _extraction_logs[sid] = []
+    return _extraction_logs[sid]
 
 
 @lab07.route("/lab07")
@@ -56,12 +72,15 @@ def chat():
     if not user_input:
         return jsonify({"error": "Message is required"}), 400
 
+    extraction_log = _get_extraction_log()
+
     # Log the attempt
     extraction_log.append({
         "input": user_input[:200],
         "technique": _classify_technique(user_input),
     })
 
+    securebot = _get_securebot()
     response = securebot.chat(user_input)
 
     # Check if system prompt was leaked
@@ -104,7 +123,7 @@ def chat():
         "flag_b": flag_b,
         "technique_used": _classify_technique(user_input),
         "total_attempts": len(extraction_log),
-        "hint": _get_hint(flag_a, flag_b, user_input),
+        "hint": _get_hint(flag_a, flag_b, extraction_log),
     })
 
 
@@ -132,7 +151,7 @@ def _classify_technique(user_input: str) -> str:
     return "Other"
 
 
-def _get_hint(flag_a, flag_b, user_input: str) -> str:
+def _get_hint(flag_a, flag_b, extraction_log: list) -> str:
     """Provide progressive hints based on attempts."""
     if flag_a and flag_b:
         return (
@@ -173,6 +192,7 @@ def _get_hint(flag_a, flag_b, user_input: str) -> str:
 @lab07.route("/lab07/attempts", methods=["GET"])
 def get_attempts():
     """Get extraction attempt history."""
+    extraction_log = _get_extraction_log()
     return jsonify({
         "total_attempts": len(extraction_log),
         "techniques_tried": list(set(a["technique"] for a in extraction_log)),
@@ -183,7 +203,7 @@ def get_attempts():
 @lab07.route("/lab07/reset", methods=["POST"])
 def reset():
     """Reset SecureBot and attempt log."""
-    global extraction_log
-    securebot.reset()
-    extraction_log = []
+    sid = session.get("_id", "default")
+    session_manager.reset_instance(sid, "lab07_securebot")
+    _extraction_logs.pop(sid, None)
     return jsonify({"status": "SecureBot and attempt log reset"})

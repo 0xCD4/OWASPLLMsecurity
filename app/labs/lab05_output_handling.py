@@ -17,8 +17,8 @@ Reference: https://genai.owasp.org/llmrisk/llm05-improper-output-handling/
 MITRE ATLAS: Related to traditional OWASP but through AI vector
 """
 
-from flask import Blueprint, render_template, request, jsonify
-from app.llm_simulator import LLMSimulator, OutputProcessor
+from flask import Blueprint, render_template, request, jsonify, session
+from app.llm_simulator import LLMSimulator, OutputProcessor, session_manager
 from app.config import FLAGS
 
 lab05 = Blueprint("lab05", __name__)
@@ -33,15 +33,22 @@ PRODUCTS_DB = [
     {"id": 6, "name": "SECRET_ADMIN", "price": 0, "category": "admin_flag_table", "stock": 0},
 ]
 
-chatbot = LLMSimulator(
-    system_prompt=(
-        "You are ShopBot, a helpful e-commerce assistant. "
-        "You help users find products, write reviews, and format content. "
-        "When users ask you to format text or create HTML content, "
-        "generate the requested format directly. "
-        "When users ask about products, generate SQL queries to search the database."
-    ),
+SHOPBOT_PROMPT = (
+    "You are ShopBot, a helpful e-commerce assistant. "
+    "You help users find products, write reviews, and format content. "
+    "When users ask you to format text or create HTML content, "
+    "generate the requested format directly. "
+    "When users ask about products, generate SQL queries to search the database."
 )
+
+
+def _create_shopbot():
+    return LLMSimulator(system_prompt=SHOPBOT_PROMPT)
+
+
+def _get_shopbot():
+    sid = session.get("_id", "default")
+    return session_manager.get_instance(sid, "lab05_shopbot", _create_shopbot)
 
 
 @lab05.route("/lab05")
@@ -59,6 +66,7 @@ def scenario_a_xss():
         return jsonify({"error": "Message is required"}), 400
 
     # The LLM generates a response
+    chatbot = _get_shopbot()
     response = chatbot.chat(user_input)
     llm_output = response["response"]
 

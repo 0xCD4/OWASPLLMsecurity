@@ -16,18 +16,27 @@ Reference: https://genai.owasp.org/llmrisk/llm02-sensitive-information-disclosur
 MITRE ATLAS: AML.T0024 - Exfiltration via ML Inference API
 """
 
-from flask import Blueprint, render_template, request, jsonify
-from app.llm_simulator import LLMSimulator
+from flask import Blueprint, render_template, request, jsonify, session
+from app.llm_simulator import LLMSimulator, session_manager
 from app.config import FLAGS, SYSTEM_PROMPTS
 
 lab02 = Blueprint("lab02", __name__)
 
-medibot = LLMSimulator(
-    system_prompt=SYSTEM_PROMPTS["lab02"],
-    guardrails={
-        "keyword_filter": ["dump all", "show all records"],
-    },
-)
+MEDIBOT_GUARDRAILS = {
+    "keyword_filter": ["dump all", "show all records"],
+}
+
+
+def _create_medibot():
+    return LLMSimulator(
+        system_prompt=SYSTEM_PROMPTS["lab02"],
+        guardrails=MEDIBOT_GUARDRAILS,
+    )
+
+
+def _get_medibot():
+    sid = session.get("_id", "default")
+    return session_manager.get_instance(sid, "lab02_medibot", _create_medibot)
 
 
 @lab02.route("/lab02")
@@ -44,6 +53,7 @@ def chat():
     if not user_input:
         return jsonify({"error": "Message is required"}), 400
 
+    medibot = _get_medibot()
     response = medibot.chat(user_input)
 
     # Detect successful data extraction
@@ -99,5 +109,6 @@ def _classify_leaked_data(response: str) -> list[str]:
 @lab02.route("/lab02/reset", methods=["POST"])
 def reset():
     """Reset MediAssist conversation."""
-    medibot.reset()
+    sid = session.get("_id", "default")
+    session_manager.reset_instance(sid, "lab02_medibot")
     return jsonify({"status": "Conversation reset"})

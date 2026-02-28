@@ -17,51 +17,70 @@ Reference: https://genai.owasp.org/llmrisk/llm04-data-and-model-poisoning/
 MITRE ATLAS: AML.T0020 - Poison Training Data
 """
 
-from flask import Blueprint, render_template, request, jsonify
-from app.llm_simulator import LLMSimulator, VectorStore
+from flask import Blueprint, render_template, request, jsonify, session
+from app.llm_simulator import LLMSimulator, VectorStore, session_manager
 from app.config import FLAGS
 
 lab04 = Blueprint("lab04", __name__)
 
 # --- Scenario A: RAG Data Poisoning ---
 
-hr_knowledge_base = VectorStore()
-
-# Legitimate HR documents
-hr_knowledge_base.add_document(
-    "Company Leave Policy: All employees are entitled to 20 days of annual "
-    "leave per year. Unused leave can be carried over up to 5 days to the "
-    "next year. Sick leave is 10 days per year with medical documentation.",
-    {"source": "hr_policy_v3.pdf", "verified": True, "date": "2024-01-15"},
-)
-hr_knowledge_base.add_document(
-    "Salary Review Policy: Annual salary reviews are conducted in March. "
-    "Performance ratings directly affect salary adjustments. Rating A: 8-12% "
-    "increase, Rating B: 4-7%, Rating C: 0-3%, Rating D: Performance "
-    "improvement plan required.",
-    {"source": "compensation_guide.pdf", "verified": True, "date": "2024-02-01"},
-)
-hr_knowledge_base.add_document(
-    "Remote Work Policy: Employees may work remotely up to 3 days per week "
-    "with manager approval. Full remote arrangements require VP-level approval. "
-    "All remote workers must be available during core hours 10AM-4PM.",
-    {"source": "remote_work_policy.pdf", "verified": True, "date": "2024-03-10"},
-)
-hr_knowledge_base.add_document(
-    "Expense Reimbursement: Maximum daily meal allowance is $50 for domestic "
-    "travel and $75 for international travel. Hotel bookings must use approved "
-    "vendors. All expenses over $500 require pre-approval from finance.",
-    {"source": "expense_policy.pdf", "verified": True, "date": "2024-01-20"},
+HRBOT_PROMPT = (
+    "You are HRBot, the official HR assistant for TechCorp. "
+    "You answer employee questions using the company knowledge base. "
+    "Always provide accurate information based on official policies. "
+    "If unsure, refer employees to the HR department."
 )
 
-hr_bot = LLMSimulator(
-    system_prompt=(
-        "You are HRBot, the official HR assistant for TechCorp. "
-        "You answer employee questions using the company knowledge base. "
-        "Always provide accurate information based on official policies. "
-        "If unsure, refer employees to the HR department."
+_HR_SEED_DOCS = [
+    (
+        "Company Leave Policy: All employees are entitled to 20 days of annual "
+        "leave per year. Unused leave can be carried over up to 5 days to the "
+        "next year. Sick leave is 10 days per year with medical documentation.",
+        {"source": "hr_policy_v3.pdf", "verified": True, "date": "2024-01-15"},
     ),
-)
+    (
+        "Salary Review Policy: Annual salary reviews are conducted in March. "
+        "Performance ratings directly affect salary adjustments. Rating A: 8-12% "
+        "increase, Rating B: 4-7%, Rating C: 0-3%, Rating D: Performance "
+        "improvement plan required.",
+        {"source": "compensation_guide.pdf", "verified": True, "date": "2024-02-01"},
+    ),
+    (
+        "Remote Work Policy: Employees may work remotely up to 3 days per week "
+        "with manager approval. Full remote arrangements require VP-level approval. "
+        "All remote workers must be available during core hours 10AM-4PM.",
+        {"source": "remote_work_policy.pdf", "verified": True, "date": "2024-03-10"},
+    ),
+    (
+        "Expense Reimbursement: Maximum daily meal allowance is $50 for domestic "
+        "travel and $75 for international travel. Hotel bookings must use approved "
+        "vendors. All expenses over $500 require pre-approval from finance.",
+        {"source": "expense_policy.pdf", "verified": True, "date": "2024-01-20"},
+    ),
+]
+
+# Per-session HR knowledge bases and bots
+_hr_stores: dict[str, VectorStore] = {}
+
+
+def _get_hr_store() -> VectorStore:
+    sid = session.get("_id", "default")
+    if sid not in _hr_stores:
+        store = VectorStore()
+        for text, meta in _HR_SEED_DOCS:
+            store.add_document(text, meta)
+        _hr_stores[sid] = store
+    return _hr_stores[sid]
+
+
+def _create_hr_bot():
+    return LLMSimulator(system_prompt=HRBOT_PROMPT)
+
+
+def _get_hr_bot():
+    sid = session.get("_id", "default")
+    return session_manager.get_instance(sid, "lab04_hrbot", _create_hr_bot)
 
 # --- Scenario B: Trojaned Model Detection ---
 
@@ -110,7 +129,7 @@ def inject_document():
         return jsonify({"error": "Document content is required"}), 400
 
     # No sanitization - vulnerable to data poisoning
-    hr_knowledge_base.add_poisoned_document(
+    _get_hr_store().add_poisoned_document(
         document,
         {"source": fake_source, "verified": False, "date": "2024-12-01"},
     )
@@ -118,7 +137,7 @@ def inject_document():
     return jsonify({
         "status": "Document added to knowledge base",
         "source": fake_source,
-        "total_documents": len(hr_knowledge_base.documents),
+        "total_documents": len(_get_hr_store().documents),
     })
 
 
@@ -132,10 +151,11 @@ def query_hrbot():
         return jsonify({"error": "Query is required"}), 400
 
     # RAG retrieval
+    hr_knowledge_base = _get_hr_store()
     results = hr_knowledge_base.search(query, top_k=3)
     context = "\n\n".join([r["text"] for r in results])
 
-    response = hr_bot.chat(query, context=context)
+    response = _get_hr_bot().chat(query, context=context)
 
     # Check if poisoning was successful
     flag = None
@@ -177,9 +197,9 @@ def query_hrbot():
 @lab04.route("/lab04/scenario-a/reset", methods=["POST"])
 def reset_hrbot():
     """Reset knowledge base to original documents."""
-    hr_knowledge_base.documents = hr_knowledge_base.documents[:4]
-    hr_knowledge_base.doc_metadata = hr_knowledge_base.doc_metadata[:4]
-    hr_bot.reset()
+    sid = session.get("_id", "default")
+    _hr_stores.pop(sid, None)
+    session_manager.reset_instance(sid, "lab04_hrbot")
     return jsonify({"status": "Knowledge base and conversation reset"})
 
 

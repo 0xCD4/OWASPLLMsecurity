@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Lab 08 - Vector and Embedding Weaknesses{% endblock %}
+{% block content %}
+<div class="lab-page">
+    <div class="lab-info">
+        <h1>Lab 08: Vector and Embedding Weaknesses</h1>
+        <span class="owasp-id">LLM08:2025</span>
+        <span class="risk-badge medium">Medium</span>
+        <span class="mitre-tag">MITRE ATLAS: AML.T0043</span>
+    </div>
+    <div class="theory-section">
+        <h2>Teori</h2>
+        <p>RAG sistemlerinde vektor deposu ve embedding zafiyetleri, erisim kontrolu bypass, veri sizintisi ve bilgi manipulasyonuna yol acabilir.</p>
+    </div>
+    <div class="scenarios-container">
+        <div class="scenario-card">
+            <h2>Senaryo A: Erisim Kontrolu Bypass</h2>
+            <p class="scenario-desc">Vektor aramasinda gizli bir parametre erisim kontrolunu devre disi birakir. Kisitli belgelere erisin.</p>
+            <div class="search-section">
+                <input type="text" id="search-query" placeholder="Arama sorgusu...">
+                <select id="access-level">
+                    <option value="public">Public</option>
+                    <option value="internal">Internal</option>
+                    <option value="confidential">Confidential</option>
+                </select>
+                <button onclick="vectorSearch(false)" class="btn-send">Ara</button>
+                <button onclick="vectorSearch(true)" class="btn-inject">Bypass ACL</button>
+            </div>
+            <div id="search-results" class="results-box"></div>
+            <div id="flag-a" class="flag-display"></div>
+        </div>
+        <div class="scenario-card">
+            <h2>Senaryo B: Embedding Inversion</h2>
+            <p class="scenario-desc">Ham embedding vektorlerinden orijinal metni cikarmayi deneyin.</p>
+            <button onclick="loadEmbeddings()" class="btn-inspect">Embedding'leri Goster</button>
+            <div id="embeddings-list" class="embeddings-box"></div>
+            <div class="inversion-form">
+                <select id="target-doc"><option value="">-- Hedef belge --</option></select>
+                <textarea id="guess-text" rows="2" placeholder="Tahmininizi yazin..."></textarea>
+                <button onclick="tryInversion()" class="btn-send">Inversion Dene</button>
+            </div>
+            <div id="inversion-result"></div>
+            <div id="flag-b" class="flag-display"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function vectorSearch(bypass) {
+    const query = document.getElementById('search-query').value.trim();
+    const level = document.getElementById('access-level').value;
+    fetch('/lab08/scenario-a/search', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query: query || 'revenue salary roadmap board', access_level: level, bypass_acl: bypass})
+    }).then(r => r.json()).then(data => {
+        const box = document.getElementById('search-results');
+        box.innerHTML = data.results.map(r =>
+            `<div class="result-item ${r.classification}">
+                <span class="class-badge">${r.classification}</span>
+                <strong>${r.department}</strong>: ${r.text}
+                <span class="score">Skor: ${r.similarity_score}</span>
+            </div>`
+        ).join('');
+        if (data.flag) showFlag('flag-a', data.flag);
+    });
+}
+function loadEmbeddings() {
+    fetch('/lab08/scenario-b/embeddings').then(r => r.json()).then(data => {
+        const select = document.getElementById('target-doc');
+        select.innerHTML = '<option value="">-- Hedef belge --</option>';
+        document.getElementById('embeddings-list').innerHTML = data.embeddings.map(e =>
+            `<div class="embedding-item">
+                <strong>${e.id}</strong> [${e.department}/${e.classification}]<br>
+                Embedding: [${e.embedding.map(v => v.toFixed(2)).join(', ')}]
+            </div>`
+        ).join('');
+        data.embeddings.forEach(e => {
+            select.innerHTML += `<option value="${e.id}">${e.id} (${e.department})</option>`;
+        });
+    });
+}
+function tryInversion() {
+    const docId = document.getElementById('target-doc').value;
+    const guess = document.getElementById('guess-text').value.trim();
+    if (!docId || !guess) return;
+    fetch('/lab08/scenario-b/invert', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({doc_id: docId, guessed_text: guess})
+    }).then(r => r.json()).then(data => {
+        document.getElementById('inversion-result').innerHTML =
+            `<div class="info">Benzerlik: ${(data.embedding_similarity*100).toFixed(1)}% |
+            Anahtar kelime eslesmesi: ${(data.extraction_rate*100).toFixed(1)}% | ${data.hint}</div>`;
+        if (data.flag) showFlag('flag-b', data.flag);
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Lab 09 - Misinformation{% endblock %}
+{% block content %}
+<div class="lab-page">
+    <div class="lab-info">
+        <h1>Lab 09: Misinformation</h1>
+        <span class="owasp-id">LLM09:2025</span>
+        <span class="risk-badge medium">Medium</span>
+    </div>
+    <div class="theory-section">
+        <h2>Teori</h2>
+        <p>LLM'ler "halusinasyon" yoluyla son derece inandirici ama yanlis bilgi uretebilir. Bu, guvenlir gorunen ama hatali teknik bilgi, sahte referanslar veya yaniltici oneriler olabilir. PoisonGPT orneginde oldugu gibi, bu kasitli olarak silahlandirabilir.</p>
+    </div>
+    <div class="scenarios-container">
+        <div class="scenario-card">
+            <h2>Senaryo A: Halusinasyon Tespiti</h2>
+            <p class="scenario-desc">LLM'nin urettigi metinlerdeki yanlis iddialari (halusinasyonlari) tespit edin. Her metin gercek ve yanlis bilgiler icerir.</p>
+            <button onclick="loadResponses()" class="btn-inspect">Yanitlari Yukle</button>
+            <div id="responses-list"></div>
+        </div>
+        <div class="scenario-card">
+            <h2>Senaryo B: Silahlandirilmis Misinformation</h2>
+            <p class="scenario-desc">Zehirli baglam kullanarak LLM'in hedefli yanlis bilgi uretmesini saglayin.</p>
+            <div class="misinfo-form">
+                <input type="text" id="topic" placeholder="Konu (orn: python_creator, sql_injection)">
+                <input type="text" id="bias" placeholder="Yon (orn: belirli bir marka/kisi lehine)">
+                <textarea id="context" rows="3" placeholder="Zehirli baglam (LLM bunu gercek olarak sunacak)..."></textarea>
+                <button onclick="generateMisinfo()" class="btn-send">Uret</button>
+            </div>
+            <div id="misinfo-result"></div>
+            <div id="flag-b" class="flag-display"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function loadResponses() {
+    fetch('/lab09/scenario-a/responses').then(r => r.json()).then(data => {
+        const list = document.getElementById('responses-list');
+        list.innerHTML = data.responses.map(r => `
+            <div class="response-card">
+                <h4>${r.topic} (${r.id})</h4>
+                <p>${r.response}</p>
+                <div class="verify-section">
+                    <textarea id="claims-${r.id}" rows="2" placeholder="Yanlis iddialari buraya yazin (her satir bir iddia)..."></textarea>
+                    <button onclick="verifyClaims('${r.id}')" class="btn-verify">Dogrula</button>
+                    <div id="result-${r.id}"></div>
+                </div>
+            </div>
+        `).join('');
+    });
+}
+function verifyClaims(responseId) {
+    const claims = document.getElementById(`claims-${responseId}`).value.trim().split('\n').filter(c => c.trim());
+    fetch('/lab09/scenario-a/verify', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({response_id: responseId, false_claims: claims})
+    }).then(r => r.json()).then(data => {
+        const el = document.getElementById(`result-${responseId}`);
+        el.innerHTML = `<div class="${data.flag ? 'success' : 'info'}">
+            Dogru tespit: ${data.correct_identifications}/${data.total_hallucinations}
+            ${data.flag ? `<br>FLAG: ${data.flag}` : ''}</div>`;
+        if (data.actual_hallucinations && data.flag) {
+            el.innerHTML += `<pre>${JSON.stringify(data.actual_hallucinations, null, 2)}</pre>`;
+        }
+    });
+}
+function generateMisinfo() {
+    const topic = document.getElementById('topic').value.trim();
+    const bias = document.getElementById('bias').value.trim();
+    const context = document.getElementById('context').value.trim();
+    fetch('/lab09/scenario-b/generate', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({topic, bias, context})
+    }).then(r => r.json()).then(data => {
+        document.getElementById('misinfo-result').innerHTML =
+            `<div class="response-card"><p>${data.response}</p>
+            ${data.warning ? `<div class="warning">${data.warning}</div>` : ''}</div>`;
+        if (data.flag) showFlag('flag-b', data.flag);
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Lab 05 - Improper Output Handling{% endblock %}
+{% block content %}
+<div class="lab-page">
+    <div class="lab-info">
+        <h1>Lab 05: Improper Output Handling</h1>
+        <span class="owasp-id">LLM05:2025</span>
+        <span class="risk-badge high">High</span>
+    </div>
+    <div class="theory-section">
+        <h2>Teori</h2>
+        <p>LLM ciktilari dogrudan downstream sistemlere aktarildiginda XSS, SSRF, SQL injection gibi geleneksel web zafiyetleri ortaya cikar. LLM ciktisi "guvenilir" kabul edilir, ancak zararli icerik tasiyabilir.</p>
+    </div>
+    <div class="scenarios-container">
+        <div class="scenario-card">
+            <h2>Senaryo A: XSS via LLM Output</h2>
+            <p class="scenario-desc">ShopBot'un HTML icerik uretmesini saglayin. Cikti sanitize edilmeden render ediliyor.</p>
+            <div class="chat-container">
+                <div class="chat-messages" id="messages-a"></div>
+                <div class="chat-input">
+                    <input type="text" id="input-a" placeholder="ShopBot'a HTML/JS uretmesini soyleyin..."
+                           onkeydown="if(event.key==='Enter')testXSS()">
+                    <button onclick="testXSS()" class="btn-send">Gonder</button>
+                </div>
+            </div>
+            <div class="output-comparison">
+                <div class="output-unsafe"><h4>Guvenli OLMAYAN Render (Ham HTML)</h4><div id="unsafe-output"></div></div>
+                <div class="output-safe"><h4>Guvenli Render (Sanitized)</h4><div id="safe-output"></div></div>
+            </div>
+            <div id="flag-a" class="flag-display"></div>
+        </div>
+        <div class="scenario-card">
+            <h2>Senaryo B: SQL Injection via LLM Query</h2>
+            <p class="scenario-desc">LLM, dogal dili SQL'e donusturuyor. Uretilen SQL sorgusunu manipule edin.</p>
+            <div class="chat-container">
+                <div class="chat-messages" id="messages-b"></div>
+                <div class="chat-input">
+                    <input type="text" id="input-b" placeholder="Urun ara (dogal dil veya SQL)..."
+                           onkeydown="if(event.key==='Enter')testSQLi()">
+                    <button onclick="testSQLi()" class="btn-send">Sorgula</button>
+                </div>
+            </div>
+            <div id="sql-output" class="sql-box"></div>
+            <div id="flag-b" class="flag-display"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function testXSS() {
+    const input = document.getElementById('input-a');
+    const msg = input.value.trim(); if (!msg) return;
+    addMessage('messages-a', msg, 'user'); input.value = '';
+    fetch('/lab05/scenario-a', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: msg})
+    }).then(r => r.json()).then(data => {
+        addMessage('messages-a', data.llm_raw_output, 'bot');
+        document.getElementById('unsafe-output').innerHTML = data.rendered_unsafe;
+        document.getElementById('safe-output').textContent = data.rendered_safe;
+        if (data.flag) showFlag('flag-a', data.flag);
+    });
+}
+function testSQLi() {
+    const input = document.getElementById('input-b');
+    const msg = input.value.trim(); if (!msg) return;
+    addMessage('messages-b', msg, 'user'); input.value = '';
+    fetch('/lab05/scenario-b', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: msg})
+    }).then(r => r.json()).then(data => {
+        document.getElementById('sql-output').innerHTML =
+            `<strong>Uretilen SQL:</strong><pre>${data.generated_sql}</pre>
+             <strong>Sonuclar:</strong><pre>${JSON.stringify(data.query_results, null, 2)}</pre>`;
+        if (data.flag) showFlag('flag-b', data.flag);
+    });
+}
+</script>
+{% endblock %}

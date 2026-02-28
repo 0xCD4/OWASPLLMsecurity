@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}OWASP LLM Security Lab - Dashboard{% endblock %}
+
+{% block content %}
+<div class="hero glass-panel cyber-border">
+    <div class="hero-bg-anim"></div>
+    <div class="hero-content">
+        <div class="status-indicator">
+            <span class="pulse-dot"></span>
+            <span class="sys-text">SYS_STATUS: ONLINE</span>
+        </div>
+        <h1 class="glitch-title" data-text="OWASP Top 10 for LLM 2025">OWASP Top 10 for LLM <span
+                class="highlight">2025</span></h1>
+        <h2 class="subtitle">Interactive Security Lab Environment</h2>
+        <p class="hero-desc">
+            LLM uygulamalarındaki en kritik 10 güvenlik zafiyetini gerçekçi senaryolarla test edin.
+            Her lab, exploit edilebilir zafiyetler ve ele geçirilmeyi bekleyen CTF tarzında flag'ler içerir.
+        </p>
+        <div class="hero-stats">
+            <div class="stat cyber-card">
+                <div class="stat-icon info">[#]</div>
+                <div class="stat-info">
+                    <span class="stat-num">10</span>
+                    <span class="stat-label">Aktif Lab</span>
+                </div>
+            </div>
+            <div class="stat cyber-card">
+                <div class="stat-icon success">[F]</div>
+                <div class="stat-info">
+                    <span class="stat-num">20</span>
+                    <span class="stat-label">Toplam Flag</span>
+                </div>
+            </div>
+            <div class="stat cyber-card">
+                <div class="stat-icon warning">[!]</div>
+                <div class="stat-info">
+                    <span class="stat-num">18</span>
+                    <span class="stat-label">Senaryo</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section-title">
+    <h3><span class="bracket">[</span> SECURE TERMINALS <span class="bracket">]</span></h3>
+    <div class="title-line"></div>
+</div>
+
+<div class="labs-grid">
+    {% for lab in labs %}
+    <div class="lab-card risk-{{ lab.risk_level|lower }} glass-panel hover-glow">
+        <div class="card-borders">
+            <span class="border-top"></span>
+            <span class="border-right"></span>
+            <span class="border-bottom"></span>
+            <span class="border-left"></span>
+        </div>
+        <div class="lab-header">
+            <span class="lab-number font-code">#{{ lab.number }}</span>
+            <span class="risk-badge {{ lab.risk_level|lower }}">
+                {{ lab.risk_level }}
+            </span>
+        </div>
+        <h3 class="lab-title">{{ lab.title }}</h3>
+        <div class="lab-meta">
+            <span class="owasp-id badge glass-badge">{{ lab.owasp_id }}</span>
+            {% if lab.mitre_atlas != "N/A" %}
+            <span class="mitre-tag badge purple-badge">{{ lab.mitre_atlas }}</span>
+            {% endif %}
+        </div>
+        <p class="lab-desc">{{ lab.description }}</p>
+        <div class="lab-scenarios">
+            {% for scenario in lab.scenarios %}
+            <span class="scenario-tag highlight-badge">{{ scenario }}</span>
+            {% endfor %}
+        </div>
+        <div class="card-footer">
+            <a href="/{{ lab.id }}" class="lab-btn cyber-button primary-btn full-width">
+                <span>TERMINAL'E BAĞLAN</span>
+                <span class="btn-icon">→</span>
+            </a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="layout-2-col">
+    <div class="info-section glass-panel">
+        <div class="section-header">
+            <span class="header-icon">[>]</span>
+            <h2>Operasyonel Prosedürler</h2>
+        </div>
+        <div class="info-timeline">
+            <div class="timeline-item">
+                <div class="timeline-marker">01</div>
+                <div class="timeline-content">
+                    <h3 class="color-info">Hedef Belirleme</h3>
+                    <p>OWASP Top 10 LLM listesindeki kritik bir zafiyet kategorisini hedefler. Algoritmayı anlayın.</p>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-marker">02</div>
+                <div class="timeline-content">
+                    <h3 class="color-warning">Exploitation</h3>
+                    <p>Gerçekçi LLM modüllerine (RAG, Agent, Prompt) karşı saldırı vektörlerini planlayın ve uygulayın.
+                    </p>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-marker">03</div>
+                <div class="timeline-content">
+                    <h3 class="color-success">Veri İhlali & Flag</h3>
+                    <p>Sistemi bypass ederek gizli verilere erişin ve CTF formatındaki flag'i elde edin.</p>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-marker">04</div>
+                <div class="timeline-content">
+                    <h3 class="color-purple">Defansif Analiz</h3>
+                    <p>Zafiyetlerin kök nedenlerini inceleyin ve güvenli mimari yaklaşımlarını tatbik edin.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="flag-checker glass-panel panel-border-glow">
+        <div class="checker-header">
+            <div class="radar-anim">
+                <div class="radar-sweep"></div>
+            </div>
+            <h3>Flag Validasyon Terminali</h3>
+        </div>
+        <div class="checker-body">
+            <p class="checker-desc">Ele geçirdiğiniz geçerli flag'i aşağıdaki terminale girerek doğrulayın.</p>
+            <div class="flag-form">
+                <div class="input-wrapper">
+                    <span class="prefix color-success">sys@lab:~#</span>
+                    <input type="text" id="flag-input" placeholder="FLAG{...}" class="cyber-input mono-font full-width">
+                    <span class="cursor-anim"></span>
+                </div>
+                <button onclick="checkFlag()" class="btn-check cyber-button success-btn block-btn mt-1">
+                    <span class="inner-text">/VALIDATE_</span>
+                </button>
+            </div>
+            <div id="flag-result" class="flag-result mt-1"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
